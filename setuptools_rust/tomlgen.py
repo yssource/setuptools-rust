@@ -29,10 +29,16 @@ class tomlgen_rust(setuptools.Command):
         (str("create-workspace"), str('w'),
          str("create a workspace file at the root of the project")),
         (str("no-config"), str("C"),
-         str("do not create a `.cargo/config` file when generating a workspace"))
+         str("do not create a `.cargo/config` file when generating a workspace")),
+        (str("build-script"), str('b'),
+         str("use any `build.rs` in the crate root as a build script")),
     ]
 
-    boolean_options = [str('create_workspace'), str('force')]
+    boolean_options = [
+        str('create_workspace'),
+        str('force'),
+        str('build-script'),
+    ]
 
     def initialize_options(self):
 
@@ -41,6 +47,7 @@ class tomlgen_rust(setuptools.Command):
         self.create_workspace = None
         self.no_config = None
         self.force = None
+        self.build_script = None
 
         # use the build command to find build directories
         self.build = build(self.distribution)
@@ -93,7 +100,7 @@ class tomlgen_rust(setuptools.Command):
             else:
                 log.warn("skipping 'Cargo.toml' for workspace -- already exists")
 
-        # Create a `.cargo/config` file 
+        # Create a `.cargo/config` file
         if self.create_workspace and self.extensions and not self.no_config:
 
             dist = self.distribution
@@ -141,6 +148,12 @@ class tomlgen_rust(setuptools.Command):
         toml.set("package", "authors", self.authors)
         toml.set("package", "publish", "false")
 
+        # Add the build
+        if self.build_script:
+            script_path = ext.libfile.replace('lib.rs', 'build.rs')
+            if os.path.exists(script_path):
+                toml.set("package", "build", quote("build.rs"))
+
         # Add the relative path to the workspace if any
         if self.create_workspace:
             path_to_workspace = os.path.relpath(self.workspace, tomldir)
@@ -157,6 +170,12 @@ class tomlgen_rust(setuptools.Command):
         for dep, options in self.iter_dependencies(ext):
             toml.set("dependencies", dep, options)
 
+        # Find build dependencies within the `setup.cfg` file
+        if self.build_script:
+            toml.add_section("build-dependencies")
+            for dep, options in self.iter_dependencies(ext, "build-dependencies"):
+                toml.set('build-dependencies', dep, options)
+
         return toml
 
     def build_workspace_toml(self):
@@ -172,16 +191,16 @@ class tomlgen_rust(setuptools.Command):
 
         return toml
 
-    def iter_dependencies(self, ext=None):
+    def iter_dependencies(self, ext=None, name="dependencies"):
 
         command = self.get_command_name()
 
         # global dependencies
-        sections = ['{}.dependencies'.format(command)]
+        sections = ['{}.{}'.format(command, name)]
 
         # extension-specific dependencies
         if ext is not None:
-            sections.append('{}.dependencies.{}'.format(command, ext.name))
+            sections.append('{}.{}.{}'.format(command, name, ext.name))
 
         for section in sections:
             if self.cfg.has_section(section):
@@ -232,6 +251,7 @@ def find_rust_extensions(*directories, **kwargs):
              └ mylib/
                  └ rustext/
                      ├ lib.rs
+                     ├ build.rs
                      ├  ...
                      └  Cargo.toml
             setup.py
