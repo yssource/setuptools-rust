@@ -9,6 +9,7 @@ from .extension import RustExtension
 class clean_rust(Command):
     """ Clean rust extensions. """
 
+    user_options = []
     description = "clean rust extensions (compile/link to build directory)"
 
     def initialize_options(self):
